@@ -21,7 +21,8 @@ library
                      Settings
                      Settings.StaticFiles
                      Handler.Common
-                     Handler.Home
+                     Handler.Todo
+    other-modules:   Model.Todo
 
     if flag(dev) || flag(library-only)
         cpp-options:   -DDEVELOPMENT
@@ -81,6 +82,7 @@ library
                  , containers
                  , vector
                  , time
+                 , wai
 
 executable         yaghnob-todo
     if flag(library-only)

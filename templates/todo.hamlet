@@ -1,0 +1,28 @@
+<section id="todoapp">
+  <header id="header">
+    <h1>todos</h1>
+    <input type="text" id="new-todo" placeholder="What needs to be done?">
+
+  <section id="main">
+    <div id="todo-list-div">
+      <ul comment="yes, the original!" id="todo-list">
+
+    <input type="checkbox" id="toggle-all">
+
+  <footer id="footer">
+    <span id="todo-count">
+      <strong id="bind-n-left">0</strong>
+      <span id="bind-phrase-left">items left</span>
+    <ul id="filters">
+      <li>
+        <a href="#all" id="filter-all">All</a>
+      <li>
+        <a href="#active" id="filter-active">Active</a>
+      <li>
+        <a href="#completed" id="filter-completed">Completed</a>
+
+    <button #clear-completed .hidden>
+      Clear completed (<span id="bind-n-done">-</span>)
+
+<footer id="info">
+  <p>Double-click to edit a todo</p>
