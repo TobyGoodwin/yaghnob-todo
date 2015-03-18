@@ -5,8 +5,18 @@ import Development.Shake.Util
 
 main :: IO ()
 main = shakeArgs shakeOptions{shakeFiles="_build/"} $ do
-  want ["_build/all.js"]
+  want ["static/ghcjs/todo.js"]
 
-  "_build/all.js" %> \out -> do
-    () <- cmd "ghcjs" ["ghcjs/todo.hs"]
-    cmd "cp ghcjs/todo.hs" [out]
+  phony "devel" $ do
+    need ["static/ghcjs/todo.js"]
+    cmd "yesod devel"
+
+  "ghcjs/todo.jsexe/all.js" %> \out -> do
+    let src = "ghcjs/todo.hs"
+    need [src]
+    cmd "ghcjs" [src]
+
+  "static/ghcjs/todo.js" %> \out -> do
+    let built = "ghcjs/todo.jsexe/all.js"
+    need [built]
+    cmd "cp" [built] [out]

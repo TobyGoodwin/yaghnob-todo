@@ -12,7 +12,7 @@ import Yesod.Auth
 getTodoR :: Handler Html
 getTodoR = do
   defaultLayout $ do
-    -- addScript $ StaticR ghcjs_todo_ghcjs_todo_jsexe_all_js
+    addScript $ StaticR ghcjs_todo_js
     $(widgetFile "todo")
 
 getTodosR :: Handler TypedContent

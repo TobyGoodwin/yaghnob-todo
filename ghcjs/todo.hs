@@ -354,8 +354,8 @@ instance FromJSON Todo where
     in simple v <|> wrapped v
   parseJSON _ = mzero
 
-ajaxUrl = "/todos"
-ajaxUrlId n = "/todos/" ++ tshow n
+ajaxUrl = "/ajax/todos"
+ajaxUrlId n = "/ajax/todos/" ++ tshow n
 ajaxUrlTodo = ajaxUrlId . todoId
 
 extCreate :: Text -> IO (Either Text Todo)
