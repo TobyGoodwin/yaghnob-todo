@@ -5,4 +5,5 @@
 
 / TodoR GET
 
-/ajax/todos TodosR GET
+/ajax/todos TodosR GET POST
+/ajax/todos/#Int64 TodosNR DELETE PUT

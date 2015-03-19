@@ -360,7 +360,7 @@ ajaxUrlTodo = ajaxUrlId . todoId
 
 extCreate :: Text -> IO (Either Text Todo)
 extCreate t = do
-  r <- ajax ajaxUrl obj def
+  r <- ajax ajaxUrl obj def { asMethod = POST }
   print r
   case arStatus r of
     200 -> do
@@ -379,7 +379,6 @@ extRetrieve :: IO [Todo]
 extRetrieve = do
   x <- ajax ajaxUrl () def
   let y = arData x
-  print y
   let r = case y of
             Object o -> do
               a <- lookup "todos" o
