@@ -3,12 +3,19 @@ import Development.Shake.Command
 import Development.Shake.FilePath
 import Development.Shake.Util
 
+target = "dist/build/libHSyaghnob-todo-0.0.0-ghc7.8.3.so"
+intermed = "static/ghcjs/todo.js"
+
 main :: IO ()
 main = shakeArgs shakeOptions{shakeFiles="_build/"} $ do
-  want ["static/ghcjs/todo.js"]
+  want [target]
+
+  target %> \out -> do
+    need [intermed]
+    cmd "cabal build"
 
   phony "devel" $ do
-    need ["static/ghcjs/todo.js"]
+    need [intermed]
     cmd "yesod devel"
 
   "ghcjs/todo.jsexe/all.js" %> \out -> do
@@ -16,7 +23,7 @@ main = shakeArgs shakeOptions{shakeFiles="_build/"} $ do
     need [src]
     cmd "ghcjs" [src]
 
-  "static/ghcjs/todo.js" %> \out -> do
+  intermed %> \out -> do
     let built = "ghcjs/todo.jsexe/all.js"
     need [built]
     cmd "cp" [built] [out]
