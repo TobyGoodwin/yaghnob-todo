@@ -92,9 +92,9 @@ makeNetworkDescription initTodos initFilter h = do
   reactimate' $ fmap bindings <$> todosC
 
 update (TEvent ts f (AllToggle b)) = do
-  let us = filter ((b /= ) . todoDone) ts
+  let us = filter ((b /= ) . todoIsCompleted) ts
   mapM_ (toggle f b . todoId) us
-  mapM_ (\t -> extUpdate t { todoDone = b }) us
+  mapM_ (\t -> extUpdate t { todoIsCompleted = b }) us
 
 update (TEvent _ f (NewEnter t)) = do
   domAppendHide t (f == "completed")
@@ -105,7 +105,7 @@ update (TEvent _ _ NewAbandon) = newClear
 update (TEvent ts f (Toggle b n)) =
   case find ((n ==) . todoId) ts of
     Just t -> do
-      extUpdate t { todoDone = b }
+      extUpdate t { todoIsCompleted = b }
       toggle f b n
     Nothing -> return ()
 
@@ -113,7 +113,7 @@ update (TEvent ts _ (Edit i)) =
   case find ((i ==) . todoId) ts of
     Just j -> do
       x <- select (todoIdSelector i)
-      void $ replaceWith (editItem i (todoText j)) x
+      void $ replaceWith (editItem i (todoTitle j)) x
       extUpdate j
     Nothing -> return ()
 
@@ -121,9 +121,9 @@ update (TEvent ts _ (Enter t i)) = do
   x <- select (todoIdSelector i)
   case find ((i ==) . todoId) ts of
     Just j -> do
-      let n = j { todoText = t }
+      let n = j { todoTitle = t }
       extUpdate n
-      void $ replaceWith (todoItem $ j { todoText = t }) x
+      void $ replaceWith (todoItem $ j { todoTitle = t }) x
     Nothing -> return ()
 
 update (TEvent ts _ (Delete n)) = do
@@ -143,7 +143,7 @@ update (TEvent ts oldf (Filter newf)) = do
 
 update (TEvent ts _ DoneClear) = do
   void $ select (todoItemsSelector ".completed") >>= detach
-  mapM_ (extDelete . todoId) $ filter todoDone ts
+  mapM_ (extDelete . todoId) $ filter todoIsCompleted ts
 
 toggle f b n = do
   x <- select $ todoIdSelector n
@@ -217,7 +217,7 @@ bindings ts = do
   where
     setSpan x y = void $ select ("#" ++ x) >>= setText y
     todos = L.length ts
-    todosDone = L.length $ filter todoDone ts
+    todosDone = L.length $ filter todoIsCompleted ts
     todosLeft = todos - todosDone
     todosLeftPhrase = (if todosLeft == 1 then "item" else "items") ++ " left"
     setToggleAll ts = void $ select "input#toggle-all" >>=
@@ -267,17 +267,17 @@ setDoneSelection b x = do
 justTodoFns :: REvent -> Maybe ([Todo] -> [Todo])
 justTodoFns (Toggle b n) = Just $ todoIndexHelper set n
   where 
-    set x ts = x { todoDone = b } : L.delete x ts
+    set x ts = x { todoIsCompleted = b } : L.delete x ts
 justTodoFns (AllToggle b) = Just $ map set
-  where set t = t { todoDone = b }
+  where set t = t { todoIsCompleted = b }
 justTodoFns (Delete n) = Just $ todoIndexHelper del n
   where
     del x ts = L.delete x ts
 justTodoFns (Enter t n) = Just $ todoIndexHelper ins n
   where
-    ins x ts = x { todoText = t } : L.delete x ts
+    ins x ts = x { todoTitle = t } : L.delete x ts
 justTodoFns (NewEnter t) = Just (t :)
-justTodoFns DoneClear = Just $ filter (not . todoDone)
+justTodoFns DoneClear = Just $ filter (not . todoIsCompleted)
 justTodoFns _ = Nothing
 
 justFilterEs (Filter x) = Just x
@@ -333,6 +333,7 @@ domAppendHide item hide = do
   t <- select todoListSelector >>= appendJQuery x
   when hide $ void $ JQ.find "li:last" t >>= addClass "hidden"
 
+{-
 type TodoId = Int
 data Todo = Todo { todoId :: TodoId
                  , todoText :: Text
@@ -354,6 +355,7 @@ instance FromJSON Todo where
         wrapped x = x .: "todo" >>= simple
     in simple v <|> wrapped v
   parseJSON _ = mzero
+-}
 
 ajaxUrl = "/ajax/todos"
 ajaxUrlId n = "/ajax/todos/" ++ tshow n
