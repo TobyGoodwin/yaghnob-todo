@@ -28,6 +28,7 @@ import GHCJS.Marshal (toJSRef)
 import GHCJS.Prim (fromJSString, toJSString)
 import GHCJS.Types (JSString)
 
+import Model
 
 foreign import javascript unsafe "$r = window.location.hash;"
   windowLocationHash :: IO JSString
