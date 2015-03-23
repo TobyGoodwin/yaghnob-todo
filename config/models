@@ -1,4 +1,4 @@
 Todo json
   title Text
   isCompleted Bool
-    deriving Show
+    deriving Eq Show

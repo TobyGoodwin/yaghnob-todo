@@ -11,6 +11,7 @@ import qualified Data.List as L hiding ((++))
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as LT
+import Database.Persist (Entity(..), Key(..), PersistValue(PersistInt64), entityKey, entityVal)
 import GHCJS.Prim (fromJSString, toJSString)
 import GHCJS.Types (JSString)
 import JavaScript.JQuery hiding (Event, filter, find, last, not, on)
@@ -92,9 +93,11 @@ makeNetworkDescription initTodos initFilter h = do
   reactimate' $ fmap bindings <$> todosC
 
 update (TEvent ts f (AllToggle b)) = do
-  let us = filter ((b /= ) . todoIsCompleted) ts
-  mapM_ (toggle f b . todoId) us
-  mapM_ (\t -> extUpdate t { todoIsCompleted = b }) us
+  let us = filter ((b /= ) . entTodoDone) ts
+  mapM_ (toggle f b . entityKey) us
+  mapM_ (\t -> extUpdate (newEnt t)) us
+  where
+    newEnt (Entity k v) = Entity k v { todoIsCompleted = b }
 
 update (TEvent _ f (NewEnter t)) = do
   domAppendHide t (f == "completed")
@@ -103,28 +106,33 @@ update (TEvent _ f (NewEnter t)) = do
 update (TEvent _ _ NewAbandon) = newClear
 
 update (TEvent ts f (Toggle b n)) =
-  case find ((n ==) . todoId) ts of
+  case find ((n ==) . entityKey) ts of
     Just t -> do
-      extUpdate t { todoIsCompleted = b }
+      extUpdate (newEnt t)
       toggle f b n
     Nothing -> return ()
+  where
+    newEnt (Entity k v) = Entity k v { todoIsCompleted = b }
 
 update (TEvent ts _ (Edit i)) =
-  case find ((i ==) . todoId) ts of
+  case find ((i ==) . keyToInt . entityKey) ts of
     Just j -> do
-      x <- select (todoIdSelector i)
-      void $ replaceWith (editItem i (todoTitle j)) x
+      x <- select (todoIdSelector $ entityKey j)
+      void $ replaceWith (editItem i (todoTitle $ entityVal j)) x
       extUpdate j
     Nothing -> return ()
+  where
+    keyToInt k = let [PersistInt64 x] = keyToValues k in fromIntegral x
 
 update (TEvent ts _ (Enter t i)) = do
   x <- select (todoIdSelector i)
-  case find ((i ==) . todoId) ts of
+  case find ((i ==) . entityKey) ts of
     Just j -> do
-      let n = j { todoTitle = t }
+      let n = newEnt j
       extUpdate n
-      void $ replaceWith (todoItem $ j { todoTitle = t }) x
+      void $ replaceWith (todoItem n) x
     Nothing -> return ()
+  where newEnt (Entity k v) = Entity k v { todoTitle = t }
 
 update (TEvent ts _ (Delete n)) = do
   extDelete n
@@ -143,7 +151,7 @@ update (TEvent ts oldf (Filter newf)) = do
 
 update (TEvent ts _ DoneClear) = do
   void $ select (todoItemsSelector ".completed") >>= detach
-  mapM_ (extDelete . todoId) $ filter todoIsCompleted ts
+  mapM_ (extDelete . entityKey) $ filter entTodoDone ts
 
 toggle f b n = do
   x <- select $ todoIdSelector n
@@ -151,12 +159,13 @@ toggle f b n = do
   hideOrReveal f (not b) b x
 
 -- reactive events
-data REvent = AllToggle Bool | NewEnter Todo | NewAbandon |
-                Toggle Bool Int | Edit Int | Enter Text Int | Delete Int |
+data REvent = AllToggle Bool | NewEnter (Entity Todo) | NewAbandon |
+                Toggle Bool (Key Todo) | Edit Int |
+		Enter Text (Key Todo) | Delete (Key Todo) |
                 Filter Text | DoneClear deriving Show
 
 -- triple consisting of a Todo list, the current filter, and an REvent
-data TEvent = TEvent [Todo] Text REvent deriving Show
+data TEvent = TEvent [Entity Todo] Text REvent deriving Show
 
 -- the javascript event handlers: these fire REvents
 
@@ -190,6 +199,16 @@ newKeyUp todoRef fire e = do
         Right x -> fire $ NewEnter x
   when (k == keyEscape) $ fire NewAbandon
 
+{-
+newKeyUp todoRef fire e = do
+  k <- which e
+  when (k == keyEnter) $ do
+    v <- target e >>= selectElement >>= getVal
+    when (not $ T.null v) $
+        fire $ NewEnter (Todo v False)
+  when (k == keyEscape) $ fire NewAbandon
+-}
+
 clearDone fire _ = fire DoneClear
 
 filterClick f fire _ = fire $ Filter f
@@ -206,6 +225,7 @@ allCheckbox fire e =
 
 newClear = void $ select newTodoSelector >>= setVal ""
 
+bindings :: [Entity Todo] -> IO ()
 bindings ts = do
   setSpan "bind-n-left" $ tshow todosLeft
   setSpan "bind-phrase-left" todosLeftPhrase
@@ -217,7 +237,7 @@ bindings ts = do
   where
     setSpan x y = void $ select ("#" ++ x) >>= setText y
     todos = L.length ts
-    todosDone = L.length $ filter todoIsCompleted ts
+    todosDone = L.length $ filter entTodoDone ts
     todosLeft = todos - todosDone
     todosLeftPhrase = (if todosLeft == 1 then "item" else "items") ++ " left"
     setToggleAll ts = void $ select "input#toggle-all" >>=
@@ -242,7 +262,7 @@ setFilter f = do
   where
     deselect g = void $ select (filterSelector g) >>= removeClass "selected"
 
-todoItem (Todo i t c) =
+todoItem (Entity k (Todo t c)) =
   T.concat $ LT.toChunks $ renderHtml [shamlet|$newline always
     <li .new :c:.completed n=#{i}>
       <input .toggle type=checkbox :c:checked>
@@ -250,6 +270,9 @@ todoItem (Todo i t c) =
         #{t}
       <button .destroy>
   |]
+  where 
+    i :: Int64
+    [PersistInt64 i] = keyToValues k -- safe
 
 editItem i t =
   T.concat $ LT.toChunks $ renderHtml [shamlet|$newline always
@@ -264,27 +287,28 @@ setDoneSelection b x = do
                JQ.find "input.toggle" >>= removeProp "checked"
 
 -- justTodoFns maintains the internal model
-justTodoFns :: REvent -> Maybe ([Todo] -> [Todo])
+justTodoFns :: REvent -> Maybe ([Entity Todo] -> [Entity Todo])
 justTodoFns (Toggle b n) = Just $ todoIndexHelper set n
   where 
-    set x ts = x { todoIsCompleted = b } : L.delete x ts
+    set x@(Entity k v) ts =
+      Entity k v { todoIsCompleted = b } : L.delete x ts
 justTodoFns (AllToggle b) = Just $ map set
-  where set t = t { todoIsCompleted = b }
+  where set (Entity k v) = Entity k v { todoIsCompleted = b }
 justTodoFns (Delete n) = Just $ todoIndexHelper del n
   where
     del x ts = L.delete x ts
 justTodoFns (Enter t n) = Just $ todoIndexHelper ins n
   where
-    ins x ts = x { todoTitle = t } : L.delete x ts
+    ins x@(Entity k v) ts = Entity k v { todoTitle = t } : L.delete x ts
 justTodoFns (NewEnter t) = Just (t :)
-justTodoFns DoneClear = Just $ filter (not . todoIsCompleted)
+justTodoFns DoneClear = Just $ filter (not . entTodoDone)
 justTodoFns _ = Nothing
 
 justFilterEs (Filter x) = Just x
 justFilterEs _ = Nothing
 
 todoIndexHelper f n ts = 
-  case find ((n ==) . todoId) ts of
+  case find ((n ==) . entityKey) ts of
     Nothing -> ts
     Just x -> f x ts
 
@@ -305,8 +329,8 @@ hideIf c j = (if c then hide else reveal) j
 filterSelector :: Text -> Text
 filterSelector = ("a#filter-" ++)
 
-todoSelector :: Todo -> Text
-todoSelector = todoIdSelector . todoId
+todoSelector :: Entity Todo -> Text
+todoSelector = todoIdSelector . entityKey
 
 todoIdSelector :: TodoId -> Text
 todoIdSelector i = todoItemsSelector $ "[n='" ++ tshow i ++ "']"
@@ -319,15 +343,15 @@ buttonClearSelector = "button#clear-completed" :: Text
 footerSelector = "footer#footer" :: Text
 newTodoSelector = "input#new-todo" :: Text
 
-domIndexDelete :: Int -> IO ()
+domIndexDelete :: TodoId -> IO ()
 domIndexDelete n = void $ select (todoIdSelector n) >>= detach
 
-domAppend :: Todo -> IO ()
+domAppend :: Entity Todo -> IO ()
 domAppend item = do
   x <- select $ todoItem item
   void $ select todoListSelector >>= appendJQuery x
 
-domAppendHide :: Todo -> Bool -> IO ()
+domAppendHide :: (Entity Todo) -> Bool -> IO ()
 domAppendHide item hide = do
   x <- select $ todoItem item
   t <- select todoListSelector >>= appendJQuery x
@@ -359,9 +383,9 @@ instance FromJSON Todo where
 
 ajaxUrl = "/ajax/todos"
 ajaxUrlId n = "/ajax/todos/" ++ tshow n
-ajaxUrlTodo = ajaxUrlId . todoId
+ajaxUrlTodo = ajaxUrlId . entityKey
 
-extCreate :: Text -> IO (Either Text Todo)
+extCreate :: Text -> IO (Either Text (Entity Todo))
 extCreate t = do
   r <- ajax ajaxUrl obj def { asMethod = POST }
   print r
@@ -378,21 +402,21 @@ extCreate t = do
                  , "isCompleted" .= False
                  ]
 
-extRetrieve :: IO [Todo]
+extRetrieve :: IO [Entity Todo]
 extRetrieve = do
   x <- ajax ajaxUrl () def
   let y = arData x
   let r = case y of
             Object o -> do
               a <- lookup "todos" o
-              b <- parseMaybe parseJSON a :: Maybe [Todo]
+              b <- parseMaybe parseJSON a :: Maybe [Entity Todo]
               return b
             _ -> Nothing
   case r of
     Nothing -> return []
     Just q -> return q
 
-extUpdate :: Todo -> IO ()
+extUpdate :: Entity Todo -> IO ()
 extUpdate t = do
   putStr $ "extUpdate " ++ tshow t
   r <- ajax (ajaxUrlTodo t) (toJSON t) def { asMethod = PUT }
