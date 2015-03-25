@@ -31,7 +31,7 @@ postTodosR = do
     Just t -> do
       tid <- runDB $ insert t
       selectRep $ do
-        provideRep $ return $ object [ "todo" .= Entity tid t ]
+        provideRep $ return $ toJSON $ Entity tid t
     Nothing -> invalidArgs ["post"]
 
 deleteTodosNR :: Int64 -> Handler ()
