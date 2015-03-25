@@ -92,9 +92,12 @@ makeNetworkDescription initTodos initFilter h = do
   todosC <- changes todosB
   reactimate' $ fmap bindings <$> todosC
 
+entToInt :: Entity Todo -> Int
+entToInt e = let [PersistInt64 x] = keyToValues $ entityKey e in fromIntegral x
+
 update (TEvent ts f (AllToggle b)) = do
   let us = filter ((b /= ) . entTodoDone) ts
-  mapM_ (toggle f b . entityKey) us
+  mapM_ (toggle f b . entToInt) us
   mapM_ (\t -> extUpdate (newEnt t)) us
   where
     newEnt (Entity k v) = Entity k v { todoIsCompleted = b }
@@ -106,7 +109,7 @@ update (TEvent _ f (NewEnter t)) = do
 update (TEvent _ _ NewAbandon) = newClear
 
 update (TEvent ts f (Toggle b n)) =
-  case find ((n ==) . entityKey) ts of
+  case find ((n ==) . entToInt) ts of
     Just t -> do
       extUpdate (newEnt t)
       toggle f b n
@@ -115,18 +118,16 @@ update (TEvent ts f (Toggle b n)) =
     newEnt (Entity k v) = Entity k v { todoIsCompleted = b }
 
 update (TEvent ts _ (Edit i)) =
-  case find ((i ==) . keyToInt . entityKey) ts of
+  case find ((i ==) . entToInt) ts of
     Just j -> do
-      x <- select (todoIdSelector $ entityKey j)
+      x <- select (todoIdSelector $ entToInt j)
       void $ replaceWith (editItem i (todoTitle $ entityVal j)) x
       extUpdate j
     Nothing -> return ()
-  where
-    keyToInt k = let [PersistInt64 x] = keyToValues k in fromIntegral x
 
 update (TEvent ts _ (Enter t i)) = do
   x <- select (todoIdSelector i)
-  case find ((i ==) . entityKey) ts of
+  case find ((i ==) . entToInt) ts of
     Just j -> do
       let n = newEnt j
       extUpdate n
@@ -151,8 +152,9 @@ update (TEvent ts oldf (Filter newf)) = do
 
 update (TEvent ts _ DoneClear) = do
   void $ select (todoItemsSelector ".completed") >>= detach
-  mapM_ (extDelete . entityKey) $ filter entTodoDone ts
+  mapM_ (extDelete . entToInt) $ filter entTodoDone ts
 
+toggle :: Text -> Bool -> Int -> IO ()
 toggle f b n = do
   x <- select $ todoIdSelector n
   setDoneSelection b x
@@ -160,8 +162,7 @@ toggle f b n = do
 
 -- reactive events
 data REvent = AllToggle Bool | NewEnter (Entity Todo) | NewAbandon |
-                Toggle Bool (Key Todo) | Edit Int |
-		Enter Text (Key Todo) | Delete (Key Todo) |
+                Toggle Bool Int | Edit Int | Enter Text Int | Delete Int |
                 Filter Text | DoneClear deriving Show
 
 -- triple consisting of a Todo list, the current filter, and an REvent
@@ -308,7 +309,7 @@ justFilterEs (Filter x) = Just x
 justFilterEs _ = Nothing
 
 todoIndexHelper f n ts = 
-  case find ((n ==) . entityKey) ts of
+  case find ((n ==) . entToInt) ts of
     Nothing -> ts
     Just x -> f x ts
 
@@ -330,12 +331,14 @@ filterSelector :: Text -> Text
 filterSelector = ("a#filter-" ++)
 
 todoSelector :: Entity Todo -> Text
-todoSelector = todoIdSelector . entityKey
+todoSelector = todoIdSelector . entToInt
 
-todoIdSelector :: TodoId -> Text
+todoIdSelector :: Int -> Text
 todoIdSelector i = todoItemsSelector $ "[n='" ++ tshow i ++ "']"
 
 todoListSelector = "ul#todo-list" :: Text
+
+todoItemsSelector :: Text -> Text
 todoItemsSelector x = todoListSelector ++ " li" ++ x
 
 toggleAllSelector = "input#toggle-all" :: Text
@@ -343,7 +346,7 @@ buttonClearSelector = "button#clear-completed" :: Text
 footerSelector = "footer#footer" :: Text
 newTodoSelector = "input#new-todo" :: Text
 
-domIndexDelete :: TodoId -> IO ()
+domIndexDelete :: Int -> IO ()
 domIndexDelete n = void $ select (todoIdSelector n) >>= detach
 
 domAppend :: Entity Todo -> IO ()
@@ -383,7 +386,7 @@ instance FromJSON Todo where
 
 ajaxUrl = "/ajax/todos"
 ajaxUrlId n = "/ajax/todos/" ++ tshow n
-ajaxUrlTodo = ajaxUrlId . entityKey
+ajaxUrlTodo = ajaxUrlId . entToInt
 
 extCreate :: Text -> IO (Either Text (Entity Todo))
 extCreate t = do
