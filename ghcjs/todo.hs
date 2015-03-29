@@ -44,7 +44,7 @@ main = do
   f <- filterFromLocation
   newFilter (Filter f)
   (addHandler, fire) <- newAddHandler
-  compile (makeNetworkDescription todos f addHandler) >>= actuate
+  compile (makeNetworkDescription todos f addHandler fire) >>= actuate
   initJEvents fire ()
 
 filters :: [Text]
@@ -74,7 +74,7 @@ initJEvents fire todoRef = do
     filterOn f = plainOn (filterClick f) "click" (filterSelector f)
 
 -- the banana network
-makeNetworkDescription initTodos initFilter h = do
+makeNetworkDescription initTodos initFilter h fire = do
   e <- fromAddHandler h
 
   -- behaviour for the Todo list
@@ -86,7 +86,7 @@ makeNetworkDescription initTodos initFilter h = do
 
   -- combine the Todo list and filter behaviours with the event stream
   let tevents = TEvent <$> todosB <*> filterB <@> e
-  reactimate $ fmap update tevents
+  reactimate $ fmap (update fire) tevents
 
   -- monitor changes to the Todo list behaviour; update bindings
   todosC <- changes todosB
@@ -95,20 +95,26 @@ makeNetworkDescription initTodos initFilter h = do
 entToInt :: Entity Todo -> Int
 entToInt e = let [PersistInt64 x] = keyToValues $ entityKey e in fromIntegral x
 
-update (TEvent ts f (AllToggle b)) = do
+update _ (TEvent ts f (AllToggle b)) = do
   let us = filter ((b /= ) . entTodoDone) ts
   mapM_ (toggle f b . entToInt) us
   mapM_ (\t -> extUpdate (newEnt t)) us
   where
     newEnt (Entity k v) = Entity k v { todoIsCompleted = b }
 
-update (TEvent _ f (NewEnter t)) = do
-  domAppendHide t (f == "completed")
-  newClear
+update fire (TEvent _ f (NewEnter t)) = do
+  r <- extCreate t
+  print r
+  case r of
+    Left e -> return ()
+    Right n -> do
+      newClear
+      domAppendHide n (f == "completed")
+      fire $ Create n
 
-update (TEvent _ _ NewAbandon) = newClear
+update _ (TEvent _ _ NewAbandon) = newClear
 
-update (TEvent ts f (Toggle b n)) =
+update _ (TEvent ts f (Toggle b n)) =
   case find ((n ==) . entToInt) ts of
     Just t -> do
       extUpdate (newEnt t)
@@ -117,7 +123,7 @@ update (TEvent ts f (Toggle b n)) =
   where
     newEnt (Entity k v) = Entity k v { todoIsCompleted = b }
 
-update (TEvent ts _ (Edit i)) =
+update _ (TEvent ts _ (Edit i)) =
   case find ((i ==) . entToInt) ts of
     Just j -> do
       x <- select (todoIdSelector $ entToInt j)
@@ -125,7 +131,7 @@ update (TEvent ts _ (Edit i)) =
       extUpdate j
     Nothing -> return ()
 
-update (TEvent ts _ (Enter t i)) = do
+update _ (TEvent ts _ (Enter t i)) = do
   x <- select (todoIdSelector i)
   case find ((i ==) . entToInt) ts of
     Just j -> do
@@ -135,11 +141,11 @@ update (TEvent ts _ (Enter t i)) = do
     Nothing -> return ()
   where newEnt (Entity k v) = Entity k v { todoTitle = t }
 
-update (TEvent ts _ (Delete n)) = do
+update _ (TEvent ts _ (Delete n)) = do
   extDelete n
   domIndexDelete n
 
-update (TEvent ts oldf (Filter newf)) = do
+update _ (TEvent ts oldf (Filter newf)) = do
   setFilter newf
   case newf of
     "active" -> hide done >> reveal notDone
@@ -150,7 +156,7 @@ update (TEvent ts oldf (Filter newf)) = do
     notDone = todoItemsSelector ":not(.completed)"
     all = todoItemsSelector ""
 
-update (TEvent ts _ DoneClear) = do
+update _ (TEvent ts _ DoneClear) = do
   void $ select (todoItemsSelector ".completed") >>= detach
   mapM_ (extDelete . entToInt) $ filter entTodoDone ts
 
@@ -161,9 +167,9 @@ toggle f b n = do
   hideOrReveal f (not b) b x
 
 -- reactive events
-data REvent = AllToggle Bool | NewEnter (Entity Todo) | NewAbandon |
+data REvent = AllToggle Bool | NewEnter Text | NewAbandon |
                 Toggle Bool Int | Edit Int | Enter Text Int | Delete Int |
-                Filter Text | DoneClear deriving Show
+                Create (Entity Todo) | Filter Text | DoneClear deriving Show
 
 -- triple consisting of a Todo list, the current filter, and an REvent
 data TEvent = TEvent [Entity Todo] Text REvent deriving Show
@@ -192,12 +198,7 @@ newKeyUp todoRef fire e = do
   k <- which e
   when (k == keyEnter) $ do
     v <- target e >>= selectElement >>= getVal
-    when (not $ T.null v) $ do
-      t <- extCreate v
-      print t
-      case t of
-        Left e -> return ()
-        Right x -> fire $ NewEnter x
+    when (not $ T.null v) $ fire $ NewEnter v
   when (k == keyEscape) $ fire NewAbandon
 
 {-
@@ -301,7 +302,7 @@ justTodoFns (Delete n) = Just $ todoIndexHelper del n
 justTodoFns (Enter t n) = Just $ todoIndexHelper ins n
   where
     ins x@(Entity k v) ts = Entity k v { todoTitle = t } : L.delete x ts
-justTodoFns (NewEnter t) = Just (t :)
+justTodoFns (Create t) = Just (t :)
 justTodoFns DoneClear = Just $ filter (not . entTodoDone)
 justTodoFns _ = Nothing
 
